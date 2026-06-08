@@ -369,5 +369,5 @@ MIT © 2025 [Matheus Max Lima](https://github.com/matheus-max-lima)
 ---
 
 <div align="center">
-  Feito com 💍 para tornar o planejamento do casamento mais simples e especial.
+  Feito com amor para tornar o planejamento do casamento mais simples e especial.
 </div>
