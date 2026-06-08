@@ -1,40 +1,88 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getSessionAndWedding } from "@/lib/api-helper";
-import bcrypt from "bcryptjs";
 
 export async function GET() {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const userId = (session.user as any).id;
+
   const user = await prisma.user.findUnique({
-    where: { id: result.userId },
-    select: { id: true, name: true, email: true, createdAt: true },
+    where: { id: userId },
+    include: { wedding: true },
   });
-  return NextResponse.json({ user, wedding: result.wedding });
+
+  if (!user) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ user, wedding: user.wedding });
 }
 
-export async function PATCH(req: NextRequest) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
-  const data = await req.json();
-  if (data.type === "profile") {
-    const user = await prisma.user.update({
-      where: { id: result.userId },
-      data: {
-        ...(data.name && { name: data.name }),
-      },
-      select: { id: true, name: true, email: true },
-    });
-    return NextResponse.json({ user });
+export async function PUT(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (data.type === "password") {
-    const user = await prisma.user.findUnique({ where: { id: result.userId } });
-    if (!user?.password) return NextResponse.json({ error: "Usuário sem senha" }, { status: 400 });
-    const valid = await bcrypt.compare(data.currentPassword, user.password);
-    if (!valid) return NextResponse.json({ error: "Senha atual incorreta" }, { status: 400 });
-    const hashed = await bcrypt.hash(data.newPassword, 12);
-    await prisma.user.update({ where: { id: result.userId }, data: { password: hashed } });
-    return NextResponse.json({ success: true });
+
+  const userId = (session.user as any).id;
+
+  const body = await req.json();
+
+  // Update user profile
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      name: body.name,
+      ...(body.image !== undefined && { image: body.image }),
+    },
+  });
+
+  // Update or create wedding record
+  const wedding = await prisma.wedding.upsert({
+    where: { userId },
+    create: {
+      userId,
+      brideName: body.brideName || "Noiva",
+      groomName: body.groomName || "Noivo",
+      weddingDate: body.weddingDate ? new Date(body.weddingDate) : new Date(),
+      venue: body.venue || null,
+      city: body.city || null,
+      totalBudget: body.totalBudget ?? 0,
+      theme: body.theme || null,
+      style: body.style || null,
+    },
+    update: {
+      ...(body.brideName !== undefined && { brideName: body.brideName }),
+      ...(body.groomName !== undefined && { groomName: body.groomName }),
+      ...(body.weddingDate !== undefined && {
+        weddingDate: body.weddingDate ? new Date(body.weddingDate) : undefined,
+      }),
+      ...(body.venue !== undefined && { venue: body.venue }),
+      ...(body.city !== undefined && { city: body.city }),
+      ...(body.totalBudget !== undefined && { totalBudget: body.totalBudget }),
+      ...(body.theme !== undefined && { theme: body.theme }),
+      ...(body.style !== undefined && { style: body.style }),
+    },
+  });
+
+  return NextResponse.json({ success: true, wedding });
+}
+
+export async function DELETE() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return NextResponse.json({ error: "Tipo inválido" }, { status: 400 });
+
+  const userId = (session.user as any).id;
+
+  // Cascade deletes are handled by Prisma schema (onDelete: Cascade)
+  await prisma.user.delete({ where: { id: userId } });
+
+  return NextResponse.json({ success: true });
 }

@@ -4,9 +4,24 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
-  LayoutDashboard, CheckSquare, DollarSign, Users, Star,
-  Clock, Gift, Image, Music, Plane, PartyPopper,
-  ShoppingBag, Grid3X3, Bot, LogOut, Heart, X, Settings,
+  LayoutDashboard,
+  CheckSquare,
+  DollarSign,
+  Users,
+  Star,
+  Clock,
+  Gift,
+  Image,
+  Music,
+  Plane,
+  PartyPopper,
+  ShoppingBag,
+  Grid3X3,
+  Bot,
+  LogOut,
+  Heart,
+  X,
+  Plug,
 } from "lucide-react";
 
 const navigation = [
@@ -24,28 +39,33 @@ const navigation = [
   { name: "Enxoval", href: "/trousseau", icon: ShoppingBag },
   { name: "Mesas", href: "/seating", icon: Grid3X3 },
   { name: "IA Assistente", href: "/ai-assistant", icon: Bot },
+  { name: "Integrações", href: "/integrations", icon: Plug },
 ];
 
-export default function Sidebar({ onClose }: { onClose?: () => void }) {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export default function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-stone-100">
       {/* Logo */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-stone-100">
-        <Link href="/dashboard" className="flex items-center gap-2" onClick={onClose}>
+      <div className="flex items-center justify-between px-5 py-5 border-b border-stone-100">
+        <Link href="/dashboard" className="flex items-center gap-2">
           <Heart className="w-6 h-6 text-rose-500 fill-rose-500" />
-          <span className="font-bold text-rose-600 text-lg leading-tight">Noiva sem Crise</span>
+          <span className="font-bold text-rose-600 text-lg">Até o Altar</span>
         </Link>
         {onClose && (
-          <button onClick={onClose} className="lg:hidden p-1 text-stone-400 hover:text-stone-600 rounded">
+          <button onClick={onClose} className="lg:hidden text-stone-400 hover:text-stone-600">
             <X className="w-5 h-5" />
           </button>
         )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {navigation.map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
@@ -53,10 +73,10 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 active
                   ? "bg-rose-50 text-rose-600"
-                  : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"
+                  : "text-stone-600 hover:bg-stone-50 hover:text-stone-800"
               }`}
             >
               <item.icon className={`w-4 h-4 flex-shrink-0 ${active ? "text-rose-500" : "text-stone-400"}`} />
@@ -66,18 +86,8 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         })}
       </nav>
 
-      {/* Bottom links */}
-      <div className="px-3 py-3 border-t border-stone-100 space-y-0.5">
-        <Link
-          href="/settings"
-          onClick={onClose}
-          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-            pathname === "/settings" ? "bg-rose-50 text-rose-600" : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"
-          }`}
-        >
-          <Settings className={`w-4 h-4 flex-shrink-0 ${pathname === "/settings" ? "text-rose-500" : "text-stone-400"}`} />
-          Configurações
-        </Link>
+      {/* Sign out */}
+      <div className="px-3 py-4 border-t border-stone-100">
         <button
           onClick={() => signOut({ callbackUrl: "/" })}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-stone-500 hover:bg-stone-50 hover:text-stone-700 w-full transition-all"

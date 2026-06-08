@@ -22,8 +22,3 @@ export function daysUntil(date: Date | string): number {
   const diff = target.getTime() - now.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
-
-export function progressPercent(done: number, total: number): number {
-  if (total === 0) return 0;
-  return Math.round((done / total) * 100);
-}

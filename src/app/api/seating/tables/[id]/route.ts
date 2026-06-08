@@ -1,33 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSessionAndWedding } from "@/lib/api-helper";
+import { prisma } from "@/lib/prisma";
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
   const { id } = await params;
-  const table = await prisma.table.findFirst({ where: { id, weddingId: result.weddingId } });
-  if (!table) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const data = await req.json();
-  const updated = await prisma.table.update({
-    where: { id },
-    data: {
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.capacity !== undefined && { capacity: parseInt(data.capacity) }),
-      ...(data.shape !== undefined && { shape: data.shape }),
-      ...(data.notes !== undefined && { notes: data.notes }),
-    },
-    include: { guests: { select: { id: true, name: true, status: true } } },
+  const table = await prisma.table.update({
+    where: { id, weddingId: ctx.weddingId },
+    data,
+    include: { guests: true },
   });
-  return NextResponse.json(updated);
+  return NextResponse.json(table);
 }
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
   const { id } = await params;
-  const table = await prisma.table.findFirst({ where: { id, weddingId: result.weddingId } });
-  if (!table) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  await prisma.table.delete({ where: { id } });
+  // Unassign guests from this table first
+  await prisma.guest.updateMany({ where: { tableId: id }, data: { tableId: null } });
+  await prisma.table.delete({ where: { id, weddingId: ctx.weddingId } });
   return NextResponse.json({ success: true });
 }

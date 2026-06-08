@@ -1,29 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getSessionAndWedding } from "@/lib/api-helper";
 
 export async function GET() {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
-  return NextResponse.json(result.wedding);
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const userId = (session.user as any).id as string;
+
+  const wedding = await prisma.wedding.findUnique({ where: { userId } });
+  return NextResponse.json(wedding);
 }
 
-export async function PATCH(req: NextRequest) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const userId = (session.user as any).id as string;
+
   const data = await req.json();
-  const updated = await prisma.wedding.update({
-    where: { id: result.weddingId },
-    data: {
-      ...(data.brideName !== undefined && { brideName: data.brideName }),
-      ...(data.groomName !== undefined && { groomName: data.groomName }),
-      ...(data.weddingDate !== undefined && { weddingDate: data.weddingDate ? new Date(data.weddingDate) : null }),
-      ...(data.venue !== undefined && { venue: data.venue }),
-      ...(data.city !== undefined && { city: data.city }),
-      ...(data.totalBudget !== undefined && { totalBudget: parseFloat(data.totalBudget) }),
-      ...(data.style !== undefined && { style: data.style }),
-      ...(data.guestCount !== undefined && { guestCount: parseInt(data.guestCount) }),
-    },
+  const wedding = await prisma.wedding.upsert({
+    where: { userId },
+    update: data,
+    create: { userId, ...data },
   });
-  return NextResponse.json(updated);
+  return NextResponse.json(wedding);
+}
+
+export async function PUT(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  const userId = (session.user as any).id as string;
+
+  const data = await req.json();
+  const wedding = await prisma.wedding.update({
+    where: { userId },
+    data,
+  });
+  return NextResponse.json(wedding);
 }

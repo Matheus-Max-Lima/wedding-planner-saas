@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSessionAndWedding } from "@/lib/api-helper";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
   const playlists = await prisma.playlist.findMany({
-    where: { weddingId: result.weddingId },
+    where: { weddingId: ctx.weddingId },
     include: { tracks: { orderBy: { order: "asc" } } },
     orderBy: { createdAt: "asc" },
   });
@@ -14,16 +14,12 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
   const data = await req.json();
   const playlist = await prisma.playlist.create({
-    data: {
-      weddingId: result.weddingId,
-      name: data.name,
-      description: data.description || null,
-    },
+    data: { ...data, weddingId: ctx.weddingId },
     include: { tracks: true },
   });
-  return NextResponse.json(playlist, { status: 201 });
+  return NextResponse.json(playlist);
 }

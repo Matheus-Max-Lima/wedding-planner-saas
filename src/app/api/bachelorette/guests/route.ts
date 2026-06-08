@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSessionAndWedding } from "@/lib/api-helper";
+import { prisma } from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
-  const b = await prisma.bachelorette.findUnique({ where: { weddingId: result.weddingId } });
-  if (!b) return NextResponse.json({ error: "Despedida não encontrada" }, { status: 404 });
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
   const data = await req.json();
+  const bachelorette = await prisma.bachelorette.findUnique({ where: { weddingId: ctx.weddingId } });
+  if (!bachelorette) return NextResponse.json({ error: "Despedida não encontrada" }, { status: 404 });
   const guest = await prisma.bacheloretteGuest.create({
-    data: {
-      bacheloretteId: b.id,
-      name: data.name,
-      confirmed: data.confirmed || false,
-      paid: data.paid || false,
-      amountPaid: parseFloat(data.amountPaid) || 0,
-    },
+    data: { ...data, bacheloretteId: bachelorette.id },
   });
-  return NextResponse.json(guest, { status: 201 });
+  return NextResponse.json(guest);
 }

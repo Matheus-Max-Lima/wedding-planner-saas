@@ -1,31 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSessionAndWedding } from "@/lib/api-helper";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
+
   const items = await prisma.checklistItem.findMany({
-    where: { weddingId: result.weddingId },
-    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    where: { weddingId: ctx.weddingId },
+    orderBy: [{ month: "desc" }, { priority: "asc" }],
   });
+
   return NextResponse.json(items);
 }
 
 export async function POST(req: NextRequest) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
-  const data = await req.json();
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
+
+  const body = await req.json();
+
+  if (!body.title || typeof body.title !== "string" || !body.title.trim()) {
+    return NextResponse.json(
+      { error: "O título é obrigatório" },
+      { status: 400 }
+    );
+  }
+
+  const month = Number(body.month);
+  if (isNaN(month) || month < 1 || month > 24) {
+    return NextResponse.json(
+      { error: "Mês inválido. Deve ser entre 1 e 24." },
+      { status: 400 }
+    );
+  }
+
+  const validPriorities = ["low", "medium", "high"];
+  const priority =
+    body.priority && validPriorities.includes(body.priority)
+      ? body.priority
+      : "medium";
+
   const item = await prisma.checklistItem.create({
     data: {
-      weddingId: result.weddingId,
-      title: data.title,
-      category: data.category || "Outros",
+      weddingId: ctx.weddingId,
+      title: body.title.trim(),
+      description: body.description?.trim() || null,
+      category: body.category?.trim() || "Geral",
+      month,
+      priority,
       completed: false,
-      dueDate: data.dueDate ? new Date(data.dueDate) : null,
-      notes: data.notes || null,
-      order: data.order || 0,
     },
   });
+
   return NextResponse.json(item, { status: 201 });
 }

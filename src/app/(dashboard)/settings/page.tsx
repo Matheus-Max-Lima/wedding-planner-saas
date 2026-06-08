@@ -1,137 +1,521 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Settings, User, Lock, Calendar, Heart } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import {
+  User,
+  Heart,
+  DollarSign,
+  Trash2,
+  Save,
+  Loader2,
+  AlertTriangle,
+  Camera,
+} from "lucide-react";
 
 interface SettingsData {
-  user: { id: string; name: string; email: string };
-  wedding: { brideName: string; groomName: string; weddingDate: string | null; venue: string | null; city: string | null; totalBudget: number; style: string | null; guestCount: number | null; };
+  user: {
+    id: string;
+    name: string | null;
+    email: string;
+    image: string | null;
+  };
+  wedding: {
+    id: string;
+    brideName: string;
+    groomName: string;
+    weddingDate: string;
+    venue: string | null;
+    city: string | null;
+    totalBudget: number;
+    theme: string | null;
+    style: string | null;
+  } | null;
 }
 
+interface FormState {
+  // Profile
+  name: string;
+  profileImage: string;
+  // Wedding info
+  brideName: string;
+  groomName: string;
+  weddingDate: string;
+  venue: string;
+  city: string;
+  theme: string;
+  style: string;
+  // Budget
+  totalBudget: string;
+}
+
+const WEDDING_STYLES = [
+  "Elegante",
+  "Rústico",
+  "Boho",
+  "Moderno",
+  "Clássico",
+  "Romântico",
+  "Tropical",
+  "Minimalista",
+];
+
+const WEDDING_THEMES = [
+  "Romântico Clássico",
+  "Jardim Botânico",
+  "Rústico Chic",
+  "Praia",
+  "Minimalista",
+  "Hollywood Glamour",
+  "Provençal",
+  "Tropical",
+  "Vintage",
+  "Contemporâneo",
+];
+
 export default function SettingsPage() {
-  const [data, setData] = useState<SettingsData | null>(null);
+  const { data: session } = useSession();
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"wedding" | "profile" | "password">("wedding");
-  const [weddingForm, setWeddingForm] = useState({ brideName: "", groomName: "", weddingDate: "", venue: "", city: "", totalBudget: "", style: "", guestCount: "" });
-  const [profileForm, setProfileForm] = useState({ name: "" });
-  const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
-  async function load() {
-    const d = await fetch("/api/settings").then(r => r.json());
-    setData(d);
-    if (d) {
-      setWeddingForm({ brideName: d.wedding.brideName || "", groomName: d.wedding.groomName || "", weddingDate: d.wedding.weddingDate ? d.wedding.weddingDate.split("T")[0] : "", venue: d.wedding.venue || "", city: d.wedding.city || "", totalBudget: String(d.wedding.totalBudget || ""), style: d.wedding.style || "", guestCount: String(d.wedding.guestCount || "") });
-      setProfileForm({ name: d.user.name || "" });
+  const [form, setForm] = useState<FormState>({
+    name: "",
+    profileImage: "",
+    brideName: "",
+    groomName: "",
+    weddingDate: "",
+    venue: "",
+    city: "",
+    theme: "",
+    style: "",
+    totalBudget: "",
+  });
+
+  const [originalEmail, setOriginalEmail] = useState("");
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  async function fetchSettings() {
+    try {
+      setLoading(true);
+      const res = await fetch("/api/settings");
+      if (!res.ok) throw new Error("Falha ao carregar configurações");
+      const data: SettingsData = await res.json();
+
+      setOriginalEmail(data.user.email);
+
+      setForm({
+        name: data.user.name || "",
+        profileImage: data.user.image || "",
+        brideName: data.wedding?.brideName || "",
+        groomName: data.wedding?.groomName || "",
+        weddingDate: data.wedding?.weddingDate
+          ? new Date(data.wedding.weddingDate).toISOString().split("T")[0]
+          : "",
+        venue: data.wedding?.venue || "",
+        city: data.wedding?.city || "",
+        theme: data.wedding?.theme || "",
+        style: data.wedding?.style || "",
+        totalBudget: data.wedding?.totalBudget?.toString() || "",
+      });
+    } catch (err) {
+      toast.error("Erro ao carregar configurações");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
-  useEffect(() => { load(); }, []);
 
-  async function saveWedding() {
-    setSaving(true);
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
     try {
-      await fetch("/api/wedding", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(weddingForm) });
-      toast.success("Informações do casamento salvas!"); await load();
-    } catch { toast.error("Erro ao salvar"); } finally { setSaving(false); }
+      setSaving(true);
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          image: form.profileImage,
+          brideName: form.brideName,
+          groomName: form.groomName,
+          weddingDate: form.weddingDate,
+          venue: form.venue,
+          city: form.city,
+          theme: form.theme,
+          style: form.style,
+          totalBudget: parseFloat(form.totalBudget) || 0,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Falha ao salvar");
+
+      toast.success("Configurações salvas com sucesso!");
+    } catch (err) {
+      toast.error("Erro ao salvar configurações");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  async function saveProfile() {
-    setSaving(true);
+  async function handleDeleteAccount() {
+    if (deleteInput !== "DELETAR") {
+      toast.error('Digite "DELETAR" para confirmar');
+      return;
+    }
     try {
-      await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "profile", ...profileForm }) });
-      toast.success("Perfil atualizado!"); await load();
-    } catch { toast.error("Erro ao salvar"); } finally { setSaving(false); }
+      setDeleting(true);
+      const res = await fetch("/api/settings", { method: "DELETE" });
+      if (!res.ok) throw new Error("Falha ao deletar conta");
+      toast.success("Conta deletada. Redirecionando...");
+      router.push("/");
+    } catch (err) {
+      toast.error("Erro ao deletar conta");
+    } finally {
+      setDeleting(false);
+    }
   }
 
-  async function savePassword() {
-    if (!passwordForm.currentPassword || !passwordForm.newPassword) return toast.error("Preencha todos os campos");
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) return toast.error("As senhas não coincidem");
-    if (passwordForm.newPassword.length < 6) return toast.error("Senha deve ter pelo menos 6 caracteres");
-    setSaving(true);
-    try {
-      const res = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "password", currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword }) });
-      const d = await res.json();
-      if (!res.ok) return toast.error(d.error || "Erro ao alterar senha");
-      toast.success("Senha alterada com sucesso!");
-      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-    } catch { toast.error("Erro ao alterar senha"); } finally { setSaving(false); }
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
+      </div>
+    );
   }
-
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-4 border-rose-200 border-t-rose-500 rounded-full" /></div>;
-
-  const STYLES = ["Clássico", "Rústico", "Moderno", "Boho", "Minimalista", "Romântico", "Tropical", "Glamour"];
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto px-4 py-8 space-y-10">
       <div>
-        <h1 className="text-2xl font-bold text-stone-800 flex items-center gap-2"><Settings className="w-6 h-6 text-rose-500" /> Configurações</h1>
-        <p className="text-stone-500 text-sm mt-1">Gerencie as informações do seu casamento e conta</p>
+        <h1 className="text-3xl font-bold text-gray-900">Configurações</h1>
+        <p className="text-gray-500 mt-1">
+          Gerencie as informações do seu casamento e perfil.
+        </p>
       </div>
 
-      <div className="flex gap-2">
-        {[
-          { id: "wedding", label: "Casamento", icon: Heart },
-          { id: "profile", label: "Perfil", icon: User },
-          { id: "password", label: "Senha", icon: Lock },
-        ].map(tab => (
+      <form onSubmit={handleSave} className="space-y-10">
+        {/* Profile Section */}
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-50 rounded-xl">
+              <User className="w-5 h-5 text-purple-600" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-800">Perfil</h2>
+          </div>
+
+          {/* Profile picture preview */}
+          <div className="flex items-center gap-5">
+            <div className="relative">
+              {form.profileImage ? (
+                <img
+                  src={form.profileImage}
+                  alt="Foto de perfil"
+                  className="w-20 h-20 rounded-full object-cover border-2 border-pink-200"
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-pink-200 to-purple-200 flex items-center justify-center">
+                  <User className="w-8 h-8 text-pink-500" />
+                </div>
+              )}
+              <div className="absolute -bottom-1 -right-1 bg-pink-500 rounded-full p-1">
+                <Camera className="w-3 h-3 text-white" />
+              </div>
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                URL da foto de perfil
+              </label>
+              <input
+                type="url"
+                name="profileImage"
+                value={form.profileImage}
+                onChange={handleChange}
+                placeholder="https://exemplo.com/foto.jpg"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nome
+              </label>
+              <input
+                type="text"
+                name="name"
+                value={form.name}
+                onChange={handleChange}
+                placeholder="Seu nome"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email{" "}
+                <span className="text-gray-400 font-normal">(somente leitura)</span>
+              </label>
+              <input
+                type="email"
+                value={originalEmail}
+                readOnly
+                className="w-full border border-gray-100 rounded-xl px-4 py-2.5 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Wedding Info Section */}
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-pink-50 rounded-xl">
+              <Heart className="w-5 h-5 text-pink-500" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-800">
+              Informações do Casamento
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nome da Noiva
+              </label>
+              <input
+                type="text"
+                name="brideName"
+                value={form.brideName}
+                onChange={handleChange}
+                placeholder="Nome da noiva"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nome do Noivo
+              </label>
+              <input
+                type="text"
+                name="groomName"
+                value={form.groomName}
+                onChange={handleChange}
+                placeholder="Nome do noivo"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Data do Casamento
+              </label>
+              <input
+                type="date"
+                name="weddingDate"
+                value={form.weddingDate}
+                onChange={handleChange}
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Cidade
+              </label>
+              <input
+                type="text"
+                name="city"
+                value={form.city}
+                onChange={handleChange}
+                placeholder="São Paulo, SP"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Local da Cerimônia / Recepção
+              </label>
+              <input
+                type="text"
+                name="venue"
+                value={form.venue}
+                onChange={handleChange}
+                placeholder="Nome do espaço ou local"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Tema
+              </label>
+              <select
+                name="theme"
+                value={form.theme}
+                onChange={handleChange}
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300 bg-white"
+              >
+                <option value="">Selecione um tema</option>
+                {WEDDING_THEMES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Estilo
+              </label>
+              <select
+                name="style"
+                value={form.style}
+                onChange={handleChange}
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300 bg-white"
+              >
+                <option value="">Selecione um estilo</option>
+                {WEDDING_STYLES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </section>
+
+        {/* Budget Section */}
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-green-50 rounded-xl">
+              <DollarSign className="w-5 h-5 text-green-600" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-800">Orçamento</h2>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Orçamento Total (R$)
+            </label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
+                R$
+              </span>
+              <input
+                type="number"
+                name="totalBudget"
+                value={form.totalBudget}
+                onChange={handleChange}
+                min={0}
+                step={100}
+                placeholder="80000"
+                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Este valor será usado para calcular percentuais e acompanhar os
+              gastos.
+            </p>
+          </div>
+        </section>
+
+        {/* Save Button */}
+        <div className="flex justify-end">
           <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === tab.id ? "bg-rose-500 text-white" : "bg-white border border-stone-200 text-stone-600 hover:border-rose-300"}`}
+            type="submit"
+            disabled={saving}
+            className="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-rose-500 text-white px-8 py-3 rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <tab.icon className="w-4 h-4" />
-            {tab.label}
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Salvando...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Salvar Configurações
+              </>
+            )}
           </button>
-        ))}
-      </div>
-
-      {activeTab === "wedding" && (
-        <div className="bg-white rounded-2xl border border-stone-100 p-6">
-          <h2 className="font-semibold text-stone-800 mb-5 flex items-center gap-2"><Heart className="w-4 h-4 text-rose-400" /> Informações do casamento</h2>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div><label className="block text-sm font-medium text-stone-700 mb-1">Nome da noiva</label><input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={weddingForm.brideName} onChange={e => setWeddingForm(p => ({ ...p, brideName: e.target.value }))} /></div>
-              <div><label className="block text-sm font-medium text-stone-700 mb-1">Nome do noivo</label><input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={weddingForm.groomName} onChange={e => setWeddingForm(p => ({ ...p, groomName: e.target.value }))} /></div>
-            </div>
-            <div><label className="block text-sm font-medium text-stone-700 mb-1 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Data do casamento</label><input type="date" className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={weddingForm.weddingDate} onChange={e => setWeddingForm(p => ({ ...p, weddingDate: e.target.value }))} /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><label className="block text-sm font-medium text-stone-700 mb-1">Local/Salão</label><input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={weddingForm.venue} onChange={e => setWeddingForm(p => ({ ...p, venue: e.target.value }))} /></div>
-              <div><label className="block text-sm font-medium text-stone-700 mb-1">Cidade</label><input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={weddingForm.city} onChange={e => setWeddingForm(p => ({ ...p, city: e.target.value }))} /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><label className="block text-sm font-medium text-stone-700 mb-1">Orçamento total (R$)</label><input type="number" className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={weddingForm.totalBudget} onChange={e => setWeddingForm(p => ({ ...p, totalBudget: e.target.value }))} /></div>
-              <div><label className="block text-sm font-medium text-stone-700 mb-1">Número de convidados</label><input type="number" className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={weddingForm.guestCount} onChange={e => setWeddingForm(p => ({ ...p, guestCount: e.target.value }))} /></div>
-            </div>
-            <div><label className="block text-sm font-medium text-stone-700 mb-1">Estilo do casamento</label><select className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={weddingForm.style} onChange={e => setWeddingForm(p => ({ ...p, style: e.target.value }))}><option value="">Selecionar estilo</option>{STYLES.map(s => <option key={s}>{s}</option>)}</select></div>
-          </div>
-          <button onClick={saveWedding} disabled={saving} className="mt-6 px-6 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 disabled:opacity-60 transition-all">{saving ? "Salvando..." : "Salvar alterações"}</button>
         </div>
-      )}
+      </form>
 
-      {activeTab === "profile" && (
-        <div className="bg-white rounded-2xl border border-stone-100 p-6">
-          <h2 className="font-semibold text-stone-800 mb-5 flex items-center gap-2"><User className="w-4 h-4 text-rose-400" /> Informações da conta</h2>
-          <div className="space-y-4">
-            <div><label className="block text-sm font-medium text-stone-700 mb-1">Nome</label><input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={profileForm.name} onChange={e => setProfileForm(p => ({ ...p, name: e.target.value }))} /></div>
-            <div><label className="block text-sm font-medium text-stone-700 mb-1">Email</label><input disabled className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm bg-stone-50 text-stone-400 cursor-not-allowed" value={data?.user.email || ""} /></div>
+      {/* Danger Zone */}
+      <section className="bg-white rounded-2xl border-2 border-red-100 p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-red-50 rounded-xl">
+            <AlertTriangle className="w-5 h-5 text-red-500" />
           </div>
-          <button onClick={saveProfile} disabled={saving} className="mt-6 px-6 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 disabled:opacity-60 transition-all">{saving ? "Salvando..." : "Salvar alterações"}</button>
+          <h2 className="text-lg font-semibold text-red-700">Zona de Perigo</h2>
         </div>
-      )}
 
-      {activeTab === "password" && (
-        <div className="bg-white rounded-2xl border border-stone-100 p-6">
-          <h2 className="font-semibold text-stone-800 mb-5 flex items-center gap-2"><Lock className="w-4 h-4 text-rose-400" /> Alterar senha</h2>
-          <div className="space-y-4">
-            <div><label className="block text-sm font-medium text-stone-700 mb-1">Senha atual</label><input type="password" className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={passwordForm.currentPassword} onChange={e => setPasswordForm(p => ({ ...p, currentPassword: e.target.value }))} /></div>
-            <div><label className="block text-sm font-medium text-stone-700 mb-1">Nova senha</label><input type="password" className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={passwordForm.newPassword} onChange={e => setPasswordForm(p => ({ ...p, newPassword: e.target.value }))} /></div>
-            <div><label className="block text-sm font-medium text-stone-700 mb-1">Confirmar nova senha</label><input type="password" className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={passwordForm.confirmPassword} onChange={e => setPasswordForm(p => ({ ...p, confirmPassword: e.target.value }))} /></div>
+        <p className="text-sm text-gray-600">
+          Ao deletar sua conta, todos os dados do seu casamento — convidados,
+          orçamento, checklist e fornecedores — serão permanentemente removidos.
+          Esta ação não pode ser desfeita.
+        </p>
+
+        {!deleteConfirm ? (
+          <button
+            type="button"
+            onClick={() => setDeleteConfirm(true)}
+            className="flex items-center gap-2 border-2 border-red-300 text-red-600 px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Deletar minha conta
+          </button>
+        ) : (
+          <div className="space-y-3 bg-red-50 rounded-xl p-4 border border-red-200">
+            <p className="text-sm font-medium text-red-700">
+              Para confirmar, digite{" "}
+              <span className="font-mono font-bold">DELETAR</span> abaixo:
+            </p>
+            <input
+              type="text"
+              value={deleteInput}
+              onChange={(e) => setDeleteInput(e.target.value)}
+              placeholder="DELETAR"
+              className="w-full border border-red-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 bg-white"
+            />
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deleting || deleteInput !== "DELETAR"}
+                className="flex items-center gap-2 bg-red-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                Confirmar exclusão
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteConfirm(false);
+                  setDeleteInput("");
+                }}
+                className="px-5 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
-          <button onClick={savePassword} disabled={saving} className="mt-6 px-6 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 disabled:opacity-60 transition-all">{saving ? "Alterando..." : "Alterar senha"}</button>
-        </div>
-      )}
+        )}
+      </section>
     </div>
   );
 }

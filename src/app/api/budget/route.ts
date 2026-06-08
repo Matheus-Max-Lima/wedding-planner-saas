@@ -1,38 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSessionAndWedding } from "@/lib/api-helper";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
-  const items = await prisma.budgetItem.findMany({
-    where: { weddingId: result.weddingId },
-    include: { installments: true },
-    orderBy: { createdAt: "desc" },
-  });
-  const wedding = result.wedding;
-  const totalEstimated = items.reduce((s, i) => s + i.estimatedCost, 0);
-  const totalActual = items.reduce((s, i) => s + i.actualCost, 0);
-  const totalPaid = items.filter(i => i.paid).reduce((s, i) => s + i.actualCost, 0);
-  return NextResponse.json({ items, totalBudget: wedding.totalBudget, totalEstimated, totalActual, totalPaid });
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
+
+  const [items, wedding] = await Promise.all([
+    prisma.budgetItem.findMany({
+      where: { weddingId: ctx.weddingId },
+      include: { installments: { orderBy: { dueDate: "asc" } } },
+      orderBy: { category: "asc" },
+    }),
+    prisma.wedding.findUnique({
+      where: { id: ctx.weddingId },
+      select: { totalBudget: true },
+    }),
+  ]);
+
+  return NextResponse.json({ items, totalBudget: wedding?.totalBudget ?? 0 });
 }
 
 export async function POST(req: NextRequest) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
+
   const data = await req.json();
   const item = await prisma.budgetItem.create({
     data: {
-      weddingId: result.weddingId,
+      weddingId: ctx.weddingId,
       category: data.category,
-      description: data.description,
-      estimatedCost: parseFloat(data.estimatedCost) || 0,
-      actualCost: parseFloat(data.actualCost) || 0,
-      paid: data.paid || false,
+      title: data.title,
+      estimatedCost: Number(data.estimatedCost) || 0,
+      actualCost: Number(data.actualCost) || 0,
+      paid: Number(data.paid) || 0,
       vendor: data.vendor || null,
       notes: data.notes || null,
     },
     include: { installments: true },
   });
+
   return NextResponse.json(item, { status: 201 });
+}
+
+export async function PUT(req: NextRequest) {
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
+
+  const data = await req.json();
+  const updated = await prisma.wedding.update({
+    where: { id: ctx.weddingId },
+    data: { totalBudget: Number(data.totalBudget) || 0 },
+    select: { totalBudget: true },
+  });
+
+  return NextResponse.json(updated);
 }

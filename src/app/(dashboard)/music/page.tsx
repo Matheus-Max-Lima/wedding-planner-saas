@@ -1,232 +1,558 @@
 "use client";
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Music, Plus, Trash2, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  Music,
+  Plus,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  Download,
+  Search,
+  Clock,
+  ListMusic,
+  ExternalLink,
+} from "lucide-react";
+
+const PLAYLIST_SECTIONS = [
+  { moment: "ceremony", label: "Cerimônia", emoji: "💍", color: "rose" },
+  { moment: "cocktail", label: "Cocktail", emoji: "🥂", color: "amber" },
+  { moment: "reception", label: "Jantar / Recepção", emoji: "🍽️", color: "emerald" },
+  { moment: "party", label: "Festa", emoji: "🎉", color: "purple" },
+];
+
+const COLOR_MAP: Record<string, string> = {
+  rose: "bg-rose-50 border-rose-200 text-rose-700",
+  amber: "bg-amber-50 border-amber-200 text-amber-700",
+  emerald: "bg-emerald-50 border-emerald-200 text-emerald-700",
+  purple: "bg-purple-50 border-purple-200 text-purple-700",
+};
+
+const BADGE_MAP: Record<string, string> = {
+  rose: "bg-rose-100 text-rose-600",
+  amber: "bg-amber-100 text-amber-600",
+  emerald: "bg-emerald-100 text-emerald-600",
+  purple: "bg-purple-100 text-purple-600",
+};
+
+interface SpotifyPlaylist {
+  id: string;
+  name: string;
+  totalTracks: number;
+  imageUrl: string | null;
+}
 
 interface Track {
   id: string;
   title: string;
-  artist: string | null;
-  duration: string | null;
-  spotifyUrl: string | null;
+  artist: string;
+  duration?: number;
   order: number;
+  playlistId: string;
 }
 
 interface Playlist {
   id: string;
+  moment: string;
   name: string;
-  description: string | null;
   tracks: Track[];
 }
 
-const emptyPlaylist = { name: "", description: "" };
-const emptyTrack = { title: "", artist: "", duration: "", spotifyUrl: "" };
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function totalDuration(tracks: Track[]): number {
+  return tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
+}
+
+function formatTotalDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}min`;
+  return `${m}min`;
+}
 
 export default function MusicPage() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [showPlaylistModal, setShowPlaylistModal] = useState(false);
-  const [showTrackModal, setShowTrackModal] = useState<string | null>(null); // playlistId
-  const [playlistForm, setPlaylistForm] = useState(emptyPlaylist);
-  const [trackForm, setTrackForm] = useState(emptyTrack);
+  const [addingTo, setAddingTo] = useState<string | null>(null);
+  const [trackForm, setTrackForm] = useState({ title: "", artist: "", duration: "" });
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
 
-  async function load() {
-    const data = await fetch("/api/music/playlists").then(r => r.json());
-    setPlaylists(data);
+  // Spotify state
+  const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
+  const [spotifyPlaylists, setSpotifyPlaylists] = useState<SpotifyPlaylist[]>([]);
+  const [loadingSpotify, setLoadingSpotify] = useState(false);
+  const [showSpotify, setShowSpotify] = useState(false);
+  const [importingId, setImportingId] = useState<string | null>(null);
+  const [importTarget, setImportTarget] = useState<string>("");
+
+  const fetchPlaylists = useCallback(async () => {
+    try {
+      const res = await fetch("/api/music/playlists");
+      if (res.ok) {
+        const data = await res.json();
+        setPlaylists(data);
+      }
+    } catch {}
     setLoading(false);
-    if (data.length > 0 && !expandedId) setExpandedId(data[0].id);
-  }
-  useEffect(() => { load(); }, []);
+  }, []);
 
-  async function addPlaylist() {
-    if (!playlistForm.name.trim()) return toast.error("Nome obrigatório");
-    setSaving(true);
+  const fetchSpotifyStatus = useCallback(async () => {
     try {
-      await fetch("/api/music/playlists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(playlistForm) });
-      toast.success("Playlist criada!");
-      await load();
-      setPlaylistForm(emptyPlaylist);
-      setShowPlaylistModal(false);
-    } catch { toast.error("Erro ao criar"); }
-    finally { setSaving(false); }
-  }
+      const res = await fetch("/api/integrations/status");
+      if (res.ok) {
+        const data = await res.json();
+        setSpotifyConnected(data.spotify);
+      }
+    } catch {}
+  }, []);
 
-  async function deletePlaylist(id: string) {
-    await fetch(`/api/music/playlists/${id}`, { method: "DELETE" });
-    toast.success("Playlist removida");
-    await load();
-  }
-
-  async function addTrack(playlistId: string) {
-    if (!trackForm.title.trim()) return toast.error("Título obrigatório");
-    setSaving(true);
+  const fetchSpotifyPlaylists = useCallback(async () => {
+    setLoadingSpotify(true);
     try {
-      await fetch("/api/music/tracks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...trackForm, playlistId }) });
-      toast.success("Música adicionada!");
-      await load();
-      setTrackForm(emptyTrack);
-      setShowTrackModal(null);
-    } catch { toast.error("Erro ao adicionar"); }
-    finally { setSaving(false); }
-  }
+      const res = await fetch("/api/integrations/spotify/playlists");
+      if (res.ok) {
+        const data = await res.json();
+        setSpotifyPlaylists(data);
+        setShowSpotify(true);
+      }
+    } catch {}
+    setLoadingSpotify(false);
+  }, []);
 
-  async function deleteTrack(id: string) {
-    await fetch(`/api/music/tracks/${id}`, { method: "DELETE" });
-    toast.success("Música removida");
-    await load();
-  }
+  const importSpotifyPlaylist = async (spotifyPlaylistId: string, localPlaylistId: string) => {
+    setImportingId(spotifyPlaylistId);
+    try {
+      const res = await fetch("/api/integrations/spotify/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spotifyPlaylistId, localPlaylistId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`${data.imported} músicas importadas com sucesso!`);
+        fetchPlaylists();
+      }
+    } catch {}
+    setImportingId(null);
+    setImportTarget("");
+  };
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-4 border-rose-200 border-t-rose-500 rounded-full" /></div>;
+  useEffect(() => { fetchPlaylists(); fetchSpotifyStatus(); }, [fetchPlaylists, fetchSpotifyStatus]);
 
-  const totalTracks = playlists.reduce((s, p) => s + p.tracks.length, 0);
+  // Handle URL param on redirect back from Spotify OAuth
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("spotify") === "connected") {
+      setSpotifyConnected(true);
+      window.history.replaceState({}, "", "/music");
+    }
+  }, []);
+
+  // Ensure all sections have a playlist object
+  const getPlaylist = (moment: string): Playlist | undefined =>
+    playlists.find((p) => p.moment === moment);
+
+  const ensurePlaylist = async (moment: string, label: string): Promise<Playlist> => {
+    const existing = getPlaylist(moment);
+    if (existing) return existing;
+    const res = await fetch("/api/music/playlists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ moment, name: label }),
+    });
+    const pl = await res.json();
+    setPlaylists((prev) => [...prev, pl]);
+    return pl;
+  };
+
+  const addTrack = async (moment: string, label: string) => {
+    if (!trackForm.title || !trackForm.artist) return;
+    setSaving(true);
+    const pl = await ensurePlaylist(moment, label);
+    const durationSec = trackForm.duration
+      ? parseInt(trackForm.duration.split(":")[0] || "0") * 60 +
+        parseInt(trackForm.duration.split(":")[1] || "0")
+      : undefined;
+    const res = await fetch("/api/music/tracks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        playlistId: pl.id,
+        title: trackForm.title,
+        artist: trackForm.artist,
+        duration: durationSec,
+        order: (pl.tracks?.length || 0),
+      }),
+    });
+    if (res.ok) {
+      const track = await res.json();
+      setPlaylists((prev) =>
+        prev.map((p) =>
+          p.id === pl.id ? { ...p, tracks: [...(p.tracks || []), track] } : p
+        )
+      );
+      setTrackForm({ title: "", artist: "", duration: "" });
+      setAddingTo(null);
+    }
+    setSaving(false);
+  };
+
+  const deleteTrack = async (playlistId: string, trackId: string) => {
+    await fetch(`/api/music/tracks/${trackId}`, { method: "DELETE" });
+    setPlaylists((prev) =>
+      prev.map((p) =>
+        p.id === playlistId
+          ? { ...p, tracks: p.tracks.filter((t) => t.id !== trackId) }
+          : p
+      )
+    );
+  };
+
+  const moveTrack = async (playlistId: string, trackId: string, dir: "up" | "down") => {
+    const playlist = playlists.find((p) => p.id === playlistId);
+    if (!playlist) return;
+    const tracks = [...playlist.tracks].sort((a, b) => a.order - b.order);
+    const idx = tracks.findIndex((t) => t.id === trackId);
+    if (dir === "up" && idx === 0) return;
+    if (dir === "down" && idx === tracks.length - 1) return;
+    const swapIdx = dir === "up" ? idx - 1 : idx + 1;
+    [tracks[idx].order, tracks[swapIdx].order] = [tracks[swapIdx].order, tracks[idx].order];
+    setPlaylists((prev) =>
+      prev.map((p) => (p.id === playlistId ? { ...p, tracks } : p))
+    );
+    await fetch(`/api/music/tracks/${trackId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: tracks[idx].order }),
+    });
+  };
+
+  const exportPlaylist = (section: (typeof PLAYLIST_SECTIONS)[0]) => {
+    const pl = getPlaylist(section.moment);
+    if (!pl) return;
+    const tracks = [...(pl.tracks || [])].sort((a, b) => a.order - b.order);
+    const text = [
+      `${section.emoji} ${section.label}`,
+      `${"=".repeat(30)}`,
+      ...tracks.map((t, i) => {
+        const dur = t.duration ? ` (${formatDuration(t.duration)})` : "";
+        return `${i + 1}. ${t.title} - ${t.artist}${dur}`;
+      }),
+      ``,
+      `Total: ${tracks.length} músicas · ${formatTotalDuration(totalDuration(tracks))}`,
+    ].join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `playlist-${section.moment}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const searchedTrack = (tracks: Track[]) => {
+    if (!search) return [...tracks].sort((a, b) => a.order - b.order);
+    const q = search.toLowerCase();
+    return tracks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q)
+    ).sort((a, b) => a.order - b.order);
+  };
+
+  const grandTotal = playlists.reduce(
+    (sum, p) => sum + totalDuration(p.tracks || []),
+    0
+  );
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-stone-800 flex items-center gap-2"><Music className="w-6 h-6 text-rose-500" /> Música</h1>
-          <p className="text-stone-500 text-sm mt-1">{playlists.length} playlists · {totalTracks} músicas</p>
+    <div className="min-h-screen bg-[#fdf8f5]">
+      <div className="p-6 max-w-5xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-stone-800 flex items-center gap-2">
+              <Music className="w-6 h-6 text-rose-500" /> Músicas do Casamento
+            </h1>
+            <p className="text-stone-500 text-sm mt-0.5">
+              Organize as playlists para cada momento
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {grandTotal > 0 && (
+              <span className="text-sm text-stone-500 flex items-center gap-1">
+                <Clock className="w-4 h-4" /> {formatTotalDuration(grandTotal)} total
+              </span>
+            )}
+          </div>
         </div>
-        <button onClick={() => setShowPlaylistModal(true)} className="flex items-center gap-2 bg-rose-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-rose-600 transition-all">
-          <Plus className="w-4 h-4" /> Nova playlist
-        </button>
-      </div>
 
-      {playlists.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-stone-100 p-12 text-center">
-          <Music className="w-10 h-10 text-stone-300 mx-auto mb-3" />
-          <p className="text-stone-400 mb-4">Nenhuma playlist criada ainda.</p>
-          <button onClick={() => setShowPlaylistModal(true)} className="px-4 py-2 bg-rose-500 text-white rounded-xl text-sm hover:bg-rose-600">Criar primeira playlist</button>
+        {/* Search */}
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar música ou artista..."
+            className="w-full pl-9 pr-4 py-2.5 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-300 bg-white"
+          />
         </div>
-      ) : (
-        <div className="space-y-3">
-          {playlists.map(playlist => (
-            <div key={playlist.id} className="bg-white rounded-2xl border border-stone-100 overflow-hidden hover:border-rose-200 transition-all">
-              <div
-                className="flex items-center gap-3 px-5 py-4 cursor-pointer"
-                onClick={() => setExpandedId(expandedId === playlist.id ? null : playlist.id)}
-              >
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "linear-gradient(135deg, #f43f5e, #fb7185)" }}>
-                  <Music className="w-5 h-5 text-white" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-stone-800">{playlist.name}</h3>
-                  <p className="text-xs text-stone-400 mt-0.5">{playlist.tracks.length} músicas{playlist.description ? ` · ${playlist.description}` : ""}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={e => { e.stopPropagation(); setShowTrackModal(playlist.id); }}
-                    className="p-1.5 text-stone-400 hover:text-rose-500 rounded-lg hover:bg-rose-50"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); deletePlaylist(playlist.id); }}
-                    className="p-1.5 text-stone-400 hover:text-red-500 rounded-lg hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                  {expandedId === playlist.id ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
+
+        {/* Spotify Section */}
+        {spotifyConnected === false && (
+          <div className="bg-white rounded-2xl border border-stone-100 shadow-sm p-5 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#1DB95415] flex items-center justify-center text-xl">🎵</div>
+              <div>
+                <p className="font-semibold text-stone-800 text-sm">Conectar ao Spotify</p>
+                <p className="text-xs text-stone-500">Importe suas playlists do Spotify para os momentos do casamento</p>
+              </div>
+            </div>
+            <a
+              href="/api/integrations/spotify/connect"
+              className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-[#1DB954] text-white rounded-xl text-sm font-medium hover:bg-[#1aa34a] transition-colors"
+            >
+              Conectar Spotify
+            </a>
+          </div>
+        )}
+
+        {spotifyConnected === true && (
+          <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[#1DB95415] flex items-center justify-center text-base">🎵</div>
+                <div>
+                  <p className="font-semibold text-stone-800 text-sm">Spotify Conectado</p>
+                  <p className="text-xs text-stone-500">Importe playlists para os momentos do casamento</p>
                 </div>
               </div>
+              <button
+                onClick={fetchSpotifyPlaylists}
+                disabled={loadingSpotify}
+                className="flex items-center gap-1.5 px-4 py-2 bg-[#1DB954] text-white rounded-xl text-sm font-medium hover:bg-[#1aa34a] transition-colors disabled:opacity-50"
+              >
+                <ListMusic className="w-4 h-4" />
+                {loadingSpotify ? "Carregando..." : "Ver Playlists"}
+              </button>
+            </div>
 
-              {expandedId === playlist.id && (
-                <div className="border-t border-stone-100">
-                  {playlist.tracks.length === 0 ? (
-                    <div className="px-5 py-6 text-center">
-                      <p className="text-stone-400 text-sm">Nenhuma música ainda</p>
-                      <button onClick={() => setShowTrackModal(playlist.id)} className="mt-2 text-sm text-rose-500 hover:text-rose-600">Adicionar música</button>
+            {showSpotify && spotifyPlaylists.length > 0 && (
+              <div className="divide-y divide-stone-50">
+                {spotifyPlaylists.map((spl) => (
+                  <div key={spl.id} className="px-5 py-3 flex items-center gap-3">
+                    {spl.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={spl.imageUrl} alt={spl.name} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-stone-100 flex items-center justify-center text-stone-400 flex-shrink-0">🎵</div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-stone-800 truncate">{spl.name}</p>
+                      <p className="text-xs text-stone-400">{spl.totalTracks} músicas</p>
                     </div>
-                  ) : (
-                    <div className="divide-y divide-stone-50">
-                      {playlist.tracks.map((track, i) => (
-                        <div key={track.id} className="flex items-center gap-3 px-5 py-3 group hover:bg-stone-50">
-                          <span className="text-xs text-stone-300 w-5 text-right flex-shrink-0">{i + 1}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <select
+                        value={importTarget}
+                        onChange={(e) => setImportTarget(e.target.value)}
+                        className="text-xs border border-stone-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-rose-300"
+                      >
+                        <option value="">Escolha o momento</option>
+                        {PLAYLIST_SECTIONS.map((s) => {
+                          const pl = getPlaylist(s.moment);
+                          return pl ? (
+                            <option key={s.moment} value={pl.id}>{s.emoji} {s.label}</option>
+                          ) : null;
+                        })}
+                      </select>
+                      <button
+                        onClick={() => importTarget && importSpotifyPlaylist(spl.id, importTarget)}
+                        disabled={!importTarget || importingId === spl.id}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-rose-500 text-white rounded-lg text-xs font-semibold hover:bg-rose-600 disabled:opacity-40 transition-colors"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        {importingId === spl.id ? "Importando..." : "Importar"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showSpotify && spotifyPlaylists.length === 0 && (
+              <div className="px-5 py-8 text-center text-stone-400 text-sm">
+                Nenhuma playlist encontrada no Spotify.
+              </div>
+            )}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="text-center py-20 text-stone-400">Carregando...</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {PLAYLIST_SECTIONS.map((section) => {
+              const pl = getPlaylist(section.moment);
+              const tracks = pl ? searchedTrack(pl.tracks || []) : [];
+              const dur = pl ? totalDuration(pl.tracks || []) : 0;
+              const isAdding = addingTo === section.moment;
+
+              return (
+                <div
+                  key={section.moment}
+                  className={`bg-white rounded-2xl border ${COLOR_MAP[section.color].split(" ")[1]} shadow-sm overflow-hidden`}
+                >
+                  {/* Section Header */}
+                  <div className={`px-5 py-4 border-b ${COLOR_MAP[section.color]}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{section.emoji}</span>
+                        <div>
+                          <h2 className="font-bold text-sm">{section.label}</h2>
+                          <p className="text-xs opacity-70">
+                            {tracks.length} músicas
+                            {dur > 0 && ` · ${formatTotalDuration(dur)}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {pl && (
+                          <button
+                            onClick={() => exportPlaylist(section)}
+                            className="p-1.5 rounded-lg hover:bg-white/50 transition-colors"
+                            title="Exportar playlist"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setAddingTo(isAdding ? null : section.moment);
+                            setTrackForm({ title: "", artist: "", duration: "" });
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-white/70 hover:bg-white rounded-lg text-xs font-semibold transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Adicionar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Add Track Form */}
+                  {isAdding && (
+                    <div className="px-5 py-3 bg-stone-50 border-b border-stone-100">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <input
+                            value={trackForm.title}
+                            onChange={(e) =>
+                              setTrackForm({ ...trackForm, title: e.target.value })
+                            }
+                            placeholder="Título da música"
+                            className="flex-1 px-3 py-2 border border-stone-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-300"
+                          />
+                          <input
+                            value={trackForm.artist}
+                            onChange={(e) =>
+                              setTrackForm({ ...trackForm, artist: e.target.value })
+                            }
+                            placeholder="Artista"
+                            className="flex-1 px-3 py-2 border border-stone-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-300"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            value={trackForm.duration}
+                            onChange={(e) =>
+                              setTrackForm({ ...trackForm, duration: e.target.value })
+                            }
+                            placeholder="Duração (ex: 3:45)"
+                            className="w-32 px-3 py-2 border border-stone-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-300"
+                          />
+                          <button
+                            onClick={() => addTrack(section.moment, section.label)}
+                            disabled={saving}
+                            className="flex-1 px-3 py-2 bg-rose-500 text-white rounded-xl text-xs font-semibold hover:bg-rose-600 disabled:opacity-50 transition-colors"
+                          >
+                            {saving ? "..." : "Adicionar"}
+                          </button>
+                          <button
+                            onClick={() => setAddingTo(null)}
+                            className="px-3 py-2 border border-stone-200 rounded-xl text-xs text-stone-500 hover:bg-stone-100"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tracks List */}
+                  <div className="divide-y divide-stone-50">
+                    {tracks.length === 0 ? (
+                      <div className="px-5 py-8 text-center text-stone-400 text-sm">
+                        Nenhuma música ainda. Adicione a primeira!
+                      </div>
+                    ) : (
+                      tracks.map((track, idx) => (
+                        <div
+                          key={track.id}
+                          className="flex items-center gap-3 px-5 py-3 hover:bg-stone-50 group transition-colors"
+                        >
+                          <span
+                            className={`text-xs font-bold w-5 text-center ${BADGE_MAP[section.color]}`}
+                          >
+                            {idx + 1}
+                          </span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-stone-700 truncate">{track.title}</p>
-                            {track.artist && <p className="text-xs text-stone-400">{track.artist}</p>}
+                            <p className="text-sm font-medium text-stone-800 truncate">
+                              {track.title}
+                            </p>
+                            <p className="text-xs text-stone-400 truncate">{track.artist}</p>
                           </div>
-                          {track.duration && <span className="text-xs text-stone-400 flex-shrink-0">{track.duration}</span>}
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-                            {track.spotifyUrl && (
-                              <a href={track.spotifyUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 text-stone-400 hover:text-emerald-500 rounded-lg hover:bg-emerald-50">
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                            <button onClick={() => deleteTrack(track.id)} className="p-1.5 text-stone-400 hover:text-red-500 rounded-lg hover:bg-red-50">
+                          {track.duration && (
+                            <span className="text-xs text-stone-400 flex-shrink-0">
+                              {formatDuration(track.duration)}
+                            </span>
+                          )}
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                            <button
+                              onClick={() => moveTrack(pl!.id, track.id, "up")}
+                              disabled={idx === 0}
+                              className="p-1 rounded hover:bg-stone-200 disabled:opacity-30"
+                            >
+                              <ChevronUp className="w-3.5 h-3.5 text-stone-500" />
+                            </button>
+                            <button
+                              onClick={() => moveTrack(pl!.id, track.id, "down")}
+                              disabled={idx === tracks.length - 1}
+                              className="p-1 rounded hover:bg-stone-200 disabled:opacity-30"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5 text-stone-500" />
+                            </button>
+                            <button
+                              onClick={() => deleteTrack(pl!.id, track.id)}
+                              className="p-1 rounded hover:bg-red-100 text-stone-400 hover:text-red-500 transition-colors"
+                            >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      ))
+                    )}
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* New Playlist Modal */}
-      {showPlaylistModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowPlaylistModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold text-stone-800 mb-4">Nova playlist</h2>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Nome *</label>
-                <input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" placeholder="Ex: Cerimônia, Festa..." value={playlistForm.name} onChange={e => setPlaylistForm(p => ({ ...p, name: e.target.value }))} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Descrição</label>
-                <input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={playlistForm.description} onChange={e => setPlaylistForm(p => ({ ...p, description: e.target.value }))} />
-              </div>
-            </div>
-            <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowPlaylistModal(false)} className="flex-1 px-4 py-2 border border-stone-200 rounded-xl text-sm text-stone-600 hover:bg-stone-50">Cancelar</button>
-              <button onClick={addPlaylist} disabled={saving} className="flex-1 px-4 py-2 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 disabled:opacity-60">{saving ? "Criando..." : "Criar"}</button>
-            </div>
+              );
+            })}
           </div>
-        </div>
-      )}
-
-      {/* Add Track Modal */}
-      {showTrackModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowTrackModal(null)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold text-stone-800 mb-4">Adicionar música</h2>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Título *</label>
-                <input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={trackForm.title} onChange={e => setTrackForm(p => ({ ...p, title: e.target.value }))} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Artista</label>
-                <input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" value={trackForm.artist} onChange={e => setTrackForm(p => ({ ...p, artist: e.target.value }))} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Duração</label>
-                  <input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" placeholder="3:45" value={trackForm.duration} onChange={e => setTrackForm(p => ({ ...p, duration: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Link Spotify</label>
-                  <input className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-300" placeholder="https://..." value={trackForm.spotifyUrl} onChange={e => setTrackForm(p => ({ ...p, spotifyUrl: e.target.value }))} />
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowTrackModal(null)} className="flex-1 px-4 py-2 border border-stone-200 rounded-xl text-sm text-stone-600 hover:bg-stone-50">Cancelar</button>
-              <button onClick={() => addTrack(showTrackModal)} disabled={saving} className="flex-1 px-4 py-2 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 disabled:opacity-60">{saving ? "Adicionando..." : "Adicionar"}</button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

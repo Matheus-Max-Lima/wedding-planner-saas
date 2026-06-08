@@ -1,38 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSessionAndWedding } from "@/lib/api-helper";
+import { prisma } from "@/lib/prisma";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
   const { id } = await params;
-  const guest = await prisma.guest.findFirst({ where: { id, weddingId: result.weddingId } });
-  if (!guest) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const data = await req.json();
-  const updated = await prisma.guest.update({
-    where: { id },
+
+  const guest = await prisma.guest.update({
+    where: { id, weddingId: ctx.weddingId },
     data: {
       ...(data.name !== undefined && { name: data.name }),
       ...(data.email !== undefined && { email: data.email }),
       ...(data.phone !== undefined && { phone: data.phone }),
+      ...(data.side !== undefined && { side: data.side }),
       ...(data.status !== undefined && { status: data.status }),
-      ...(data.group !== undefined && { group: data.group }),
       ...(data.plusOne !== undefined && { plusOne: data.plusOne }),
       ...(data.plusOneName !== undefined && { plusOneName: data.plusOneName }),
-      ...(data.tableId !== undefined && { tableId: data.tableId }),
+      ...(data.dietary !== undefined && { dietary: data.dietary }),
       ...(data.notes !== undefined && { notes: data.notes }),
-      ...(data.rsvpDate !== undefined && { rsvpDate: data.rsvpDate ? new Date(data.rsvpDate) : null }),
+      ...(data.tableId !== undefined && { tableId: data.tableId }),
+      ...(data.inviteSent !== undefined && { inviteSent: data.inviteSent }),
     },
+    include: { table: { select: { id: true, name: true } } },
   });
-  return NextResponse.json(updated);
+
+  return NextResponse.json(guest);
 }
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
   const { id } = await params;
-  const guest = await prisma.guest.findFirst({ where: { id, weddingId: result.weddingId } });
-  if (!guest) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  await prisma.guest.delete({ where: { id } });
+  const data = await req.json();
+
+  const guest = await prisma.guest.update({
+    where: { id, weddingId: ctx.weddingId },
+    data,
+    include: { table: { select: { id: true, name: true } } },
+  });
+
+  return NextResponse.json(guest);
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
+  const { id } = await params;
+  await prisma.guest.delete({ where: { id, weddingId: ctx.weddingId } });
   return NextResponse.json({ success: true });
 }

@@ -1,0 +1,16 @@
+{
+  "name": "Até o Altar",
+  "short_name": "Até o Altar",
+  "description": "Transformando planos em memórias.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#fdf8f5",
+  "theme_color": "#f43f5e",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "categories": ["lifestyle", "productivity"],
+  "lang": "pt-BR"
+}

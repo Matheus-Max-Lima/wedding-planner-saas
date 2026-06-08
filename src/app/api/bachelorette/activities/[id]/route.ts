@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSessionAndWedding } from "@/lib/api-helper";
+import { prisma } from "@/lib/prisma";
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const result = await getSessionAndWedding();
-  if ("error" in result) return result.error;
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
   const { id } = await params;
-  const activity = await prisma.bacheloretteActivity.findUnique({ where: { id }, include: { bachelorette: true } });
-  if (!activity || activity.bachelorette.weddingId !== result.weddingId) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const data = await req.json();
+  const activity = await prisma.bacheloretteActivity.update({ where: { id }, data });
+  return NextResponse.json(activity);
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getSessionAndWedding();
+  if ("error" in ctx) return ctx.error;
+  const { id } = await params;
   await prisma.bacheloretteActivity.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }
